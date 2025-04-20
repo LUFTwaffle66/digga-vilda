@@ -102,6 +102,7 @@ Zohledni:
 – tréninkový směr (VO2max, sprint, vytrvalost…)  
 – rozumné střídání těžkých a lehkých dní  
 – technické preference (např. klasika > skate)
+- Neboj se doporučit Rest
 
 Output:  
 Napiš **pouze text** tréninku v jednoduchém formátu, např.:  
