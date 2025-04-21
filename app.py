@@ -28,7 +28,6 @@ def add_cors_headers(response):
 # ──────────────── PROMĚNNÉ ────────────────
 index = None
 chunks = None
-chat_histories = {}
 
 # 🔐 Gemini API klíč
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -46,11 +45,10 @@ def get_embedding(text):
 # ──────────────── API ENDPOINT ────────────────
 @app.route("/ask", methods=["POST"])
 def ask():
-    global index, chunks, chat_histories
+    global index, chunks
 
     data = request.get_json()
     question = data.get("question", "")
-    profile = data.get("profileName", "unknown").lower()
 
     # 🧠 Načíst index a texty, pokud ještě nejsou načtené
     if index is None:
@@ -64,16 +62,11 @@ def ask():
     relevant_chunks = [chunks[i] for i in I[0]]
     context = "\n".join(relevant_chunks)
 
-    # 💬 Správa historie dotazů
-    chat_histories.setdefault(profile, []).append(f"Uživatel: {question}")
-    chat_histories[profile] = chat_histories[profile][-3:]
-    history_prompt = "\n".join(chat_histories[profile])
-
     # 🧠 Vytvoření proměnné pro celý prompt
-    system_prompt = system_prompt = f"""
+    system_prompt = f"""
 Jsi osobní AI trenér bežeckého lyžování. Tví klienti jsou mladí výkonnostní sportovci a právě pracuješ s atletem, který:
 
-má 18 let a je v první sezóně v juniorské kategorii  
+má 18 let a je v první sezóně v juniorsé kategorii  
 věnuje se hlavně běžeckému lyžování, dále ski orienťáku a přes léto orientačnímu běhu  
 přes zimu absolvoval velký objem tréninku, nyní přechází do jarní a letní přípravy  
 jeho cílem je zlepšit VO2max, rychlost a sprintové schopnosti, udržet vytrvalost a zlepšit se ve sprintových distancích  
@@ -110,9 +103,6 @@ Bez vysvětlování, bez dalšího komentáře. Jen čistý návrh dnešního tr
 Zde je kontext pro inspiraci:
 
 {context}
-
-Poslední zprávy:
-{history_prompt}
 """
 
     try:
