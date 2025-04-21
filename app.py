@@ -101,10 +101,11 @@ tréninkový směr (VO2max, sprint, vytrvalost…)
 rozumné střídání těžkých a lehkých dní  
 technické preference (např. klasika > skate)
 Neboj se doporučit Rest
+Na začátku každé zprávy napiš V
 
 Output:  
 Napiš **pouze text** tréninku v jednoduchém formátu, např.:  
-„klus i1/2 40' + 3×100“  
+„V klus i1/2 40' + 3×100“  
 Bez vysvětlování, bez dalšího komentáře. Jen čistý návrh dnešního tréninku.
 """for. Ale nikdy neodváděj pozornost od tréninku.
 Zde je kontext pro inspiraci:
