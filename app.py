@@ -12,7 +12,7 @@ app = Flask(__name__)
 # ✅ Povolit volání jen z tvé Netlify stránky
 CORS(
     app,
-    resources={r"/ask": {"origins": ["https://cosmic-crostata-1c51df.netlify.app"]}},
+    resources={r"/*": {"origins": ["https://cosmic-crostata-1c51df.netlify.app"]}},
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"]
 )
@@ -24,6 +24,11 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
+
+# ✅ Obsluha root URL pro preflight requesty
+@app.route("/", methods=["GET", "OPTIONS"])
+def home():
+    return "OK", 200
 
 # ──────────────── PROMĚNNÉ ────────────────
 index = None
@@ -94,9 +99,9 @@ Zohledni:
 - technické preference (např. klasika nebo skate)  
 - neboj se doporučit Rest
 
-Na začátku každé zprávy napiš jedno písmeno „V“  
+Na začátku každé zprávy napiš jedno písmeno „V -“  
 Napiš **pouze text** tréninku v jednoduchém formátu, např.:  
-V klus I2 40' + 3×100
+V - klus I2 40' + 3×100
 
 Bez vysvětlování, bez dalšího komentáře. Jen čistý návrh dnešního tréninku.
 
@@ -107,9 +112,9 @@ Zde je kontext pro inspiraci:
 
     try:
         response = gemini_model.generate_content(system_prompt)
-        return jsonify({"answer": response.text})
+        return jsonify({"recommendation": response.text})
     except Exception as e:
-        return jsonify({"answer": f"Chyba: {e}"})
+        return jsonify({"recommendation": f"Chyba: {e}"})
 
 # ──────────────── RUN PRO RENDER ────────────────
 if __name__ == "__main__":
