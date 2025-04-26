@@ -5,23 +5,15 @@ import json
 import traceback
 import numpy as np
 import faiss
-import torch
-from transformers import AutoTokenizer, AutoModel
+import requests
 import google.generativeai as genai
 
 # ──────────────── FLASK SETUP ────────────────
 app = Flask(__name__)
 
-# Globální CORS pro všechna URL na tvé Netlify doméně
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-# ... ostatní importy
-
-app = Flask(__name__)
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
-        # získej defaultní OPTIONS odpověď
         resp = app.make_default_options_response()
         h = resp.headers
         h["Access-Control-Allow-Origin"] = "https://cosmic-crostata-1c51df.netlify.app"
@@ -29,39 +21,52 @@ def handle_preflight():
         h["Access-Control-Allow-Headers"] = "Content-Type"
         return resp
 
-# === ZDE PŘIDEJ TENHLE JEDNODUCHÝ BLOK ===
-# Globálně povol CORS jen pro tvou Netlify doménu
 CORS(app, origins=["https://cosmic-crostata-1c51df.netlify.app"])
 
-# ──────────────── API KEY & MODELS ────────────────
-API_KEY = os.getenv("GOOGLE_API_KEY")
-if not API_KEY:
+# ──────────────── API KEYS & MODELS ────────────────
+GROG_API_KEY = os.getenv("GROG_API_KEY")
+if not GROG_API_KEY:
+    raise RuntimeError("GROG_API_KEY environment variable is not set")
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
     raise RuntimeError("GOOGLE_API_KEY environment variable is not set")
 
-genai.configure(api_key=API_KEY)
+genai.configure(api_key=GOOGLE_API_KEY)
 
-def generate_from_gemini(prompt: str) -> str:
-    try:
-        resp = genai.generate_text(
-            model="gemini-1.5-flash",
-            prompt=prompt
-        )
-        return resp.text
-    except Exception:
-        app.logger.error("Gemini error:\n" + traceback.format_exc())
-        raise
-
-# Embedding model (Seznam/retromae-small-cs)
-embedding_tokenizer = AutoTokenizer.from_pretrained("Seznam/retromae-small-cs")
-embedding_model     = AutoModel.from_pretrained("Seznam/retromae-small-cs")
-
+# Embedding přes Google models/embedding-001
 def get_embedding(text: str) -> np.ndarray:
-    with torch.no_grad():
-        inputs  = embedding_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        outputs = embedding_model(**inputs)
-        cls_emb = outputs.last_hidden_state[:, 0, :]
-        normed  = torch.nn.functional.normalize(cls_emb, p=2, dim=1)
-    return normed.cpu().numpy().astype("float32")
+    response = genai.embed_content(
+        model="models/embedding-001",
+        content=text,
+        task_type="retrieval_query"
+    )
+    return np.array([response["embedding"]], dtype="float32")
+
+# Call Grog API
+def call_llama(system_prompt: str, user_message: str) -> str:
+    try:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {GROG_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama3-70b-8192",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            "temperature": 0.2,
+            "max_tokens": 800
+        }
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"].strip()
+    except Exception:
+        app.logger.error("Grog API error:\n" + traceback.format_exc())
+        raise
 
 # Cached FAISS index and text chunks
 index = None
@@ -87,7 +92,7 @@ def ask():
                 f"poznámka: {log['note']}\n"
             )
 
-        # Načtení FAISS indexu a chunks jen jednou
+        # Načtení FAISS indexu a chunks
         if index is None:
             base = os.path.dirname(__file__)
             index = faiss.read_index(os.path.join(base, "faiss.index"))
@@ -100,16 +105,17 @@ def ask():
         relevant_chunks = [chunks[i] for i in I[0]]
         context = "\n".join(relevant_chunks)
 
-        # System prompt
+        # System prompt pro Diggu
         system_prompt = f"""
 Jsi osobní AI trenér běžeckého lyžování. Tvým klientem je mladý výkonnostní sportovec, který:
 - má 18 let a je v první sezóně v juniorské kategorii
-- věnuje se běžeckému lyžování, orientačnímu běhu a ski orienťáku
+- věnuje se hlavně běžeckému lyžování, ski orienťáku a přes léto orientačnímu běhu
 - aktuálně rozvíjí VO2max, rychlost a sprintové schopnosti
 - technicky mu více sedí klasika než bruslení
-- klidový tep sleduje jako indikátor regenerace, běžně se pohybuju 45 až 50, 55 a víc už není dobré
-- školní dny ho vyčerpávají více než trénink
-- nejlepší výkony podává po vyšším objemu tréninku
+- klidový tep sleduje pečlivě: zvýšený HR během závodů nebo soustředění je normální, ale ve školním týdnu je signál únavy
+- školní dny ho vyčerpávají víc než trénink
+- nejlépe závodí po stabilním objemu tréninků i za cenu lehké únavy
+- moc závodů ho vyčerpává, ale rozzávodění pomáhá
 
 Tvým úkolem je:
 Na základě záznamů o tréninku za posledních 5 dní a poznámek navrhnout, co má sportovec trénovat **dnes**.
@@ -118,20 +124,22 @@ Zohledni:
 - rozdělení intenzit (I1–I5)
 - čas, vzdálenost, poznámky a únavu
 - potřebu střídání těžkých a lehkých dnů
-- aktuální regeneraci podle poznámek a HR
 - VO2max, sprintové zaměření
-neboj se dát rest
+- regeneraci podle poznámek a HR
+- neboj se dát Rest den
 
 Výstup:
 Napiš pouze jednoduchý plán, například:
 V - klus i2 45' + 3×100, na vyklepání nohou
 
-Dodej lehké vysvětlení
+Dodej lehké vysvětlení.
 
 Kontext tréninků:
 {context}
 """
-        recommendation = generate_from_gemini(system_prompt)
+
+        # Volání Llamy
+        recommendation = call_llama(system_prompt, query)
         return jsonify({"recommendation": recommendation})
 
     except Exception:
