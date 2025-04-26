@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 import os
 import json
 import traceback
@@ -12,25 +12,16 @@ import google.generativeai as genai
 # ──────────────── FLASK SETUP ────────────────
 app = Flask(__name__)
 
-# Povolit CORS jen z Netlify frontendu
-from flask_cors import CORS
-
-# povol CORS pro všechna URL na tvém doméně
+# Globální CORS pro všechna URL na tvé Netlify doméně
+app.config['CORS_HEADERS'] = 'Content-Type'
 CORS(
     app,
-    resources={r"/*": {"origins": ["https://cosmic-crostata-1c51df.netlify.app"]}},
+    resources={r"/*": {"origins": "https://cosmic-crostata-1c51df.netlify.app"}},
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"]
 )
 
-@app.after_request
-def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "https://cosmic-crostata-1c51df.netlify.app"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    return response
-
-# ──────────────── API KEY & SDK SETUP ────────────────
+# ──────────────── API KEY & MODELS ────────────────
 API_KEY = os.getenv("GOOGLE_API_KEY")
 if not API_KEY:
     raise RuntimeError("GOOGLE_API_KEY environment variable is not set")
@@ -48,24 +39,25 @@ def generate_from_gemini(prompt: str) -> str:
         app.logger.error("Gemini error:\n" + traceback.format_exc())
         raise
 
-# ──────────────── EMBEDDING MODEL SETUP ────────────────
+# Embedding model (Seznam/retromae-small-cs)
 embedding_tokenizer = AutoTokenizer.from_pretrained("Seznam/retromae-small-cs")
 embedding_model     = AutoModel.from_pretrained("Seznam/retromae-small-cs")
 
 def get_embedding(text: str) -> np.ndarray:
     with torch.no_grad():
-        inputs = embedding_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+        inputs  = embedding_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         outputs = embedding_model(**inputs)
         cls_emb = outputs.last_hidden_state[:, 0, :]
         normed  = torch.nn.functional.normalize(cls_emb, p=2, dim=1)
     return normed.cpu().numpy().astype("float32")
 
-# ──────────────── GLOBALS FOR FAISS ────────────────
+# Cached FAISS index and text chunks
 index = None
 chunks = None
 
-# ──────────────── ENDPOINT FOR TRAINING RECOMMENDATION ────────────────
-@app.route("/ask", methods=["POST"])
+# ──────────────── ENDPOINT ────────────────
+@app.route("/ask", methods=["OPTIONS", "POST"])
+@cross_origin(origin="https://cosmic-crostata-1c51df.netlify.app")
 def ask():
     global index, chunks
     try:
@@ -74,29 +66,29 @@ def ask():
         if not logs:
             return jsonify({"error": "Chyba: žádné logy nepřišly."}), 400
 
-        # Sestavení dotazu z posledních 5 dní
+        # Sestavení dotazu z logů
         query = ""
         for log in logs:
             query += (
-                f"{log['date']}: {log['activity']} {log['duration']}min "
-                f"{log['distance_km']}km i1:{log['i1']} i2:{log['i2']} "
-                f"i3:{log['i3']} i4:{log['i4']} i5:{log['i5']} "
+                f"{log['date']}: {log['activity']} {log['duration']}min {log['distance_km']}km "
+                f"i1:{log['i1']} i2:{log['i2']} i3:{log['i3']} i4:{log['i4']} i5:{log['i5']} "
                 f"poznámka: {log['note']}\n"
             )
 
-        # Načtení FAISS indexu a chunků
+        # Načtení FAISS indexu a chunks jen jednou
         if index is None:
-            faiss_path = os.path.join(os.path.dirname(__file__), "faiss.index")
-            index = faiss.read_index(faiss_path)
-            with open(os.path.join(os.path.dirname(__file__), "chunks.json"), "r") as f:
+            base = os.path.dirname(__file__)
+            index = faiss.read_index(os.path.join(base, "faiss.index"))
+            with open(os.path.join(base, "chunks.json"), "r") as f:
                 chunks = json.load(f)
 
-        # Retrieval relevantních vzorů
+        # Retrieval
         emb = get_embedding(query)
         D, I = index.search(emb, k=5)
-        context = "\n".join(chunks[i] for i in I[0])
+        relevant_chunks = [chunks[i] for i in I[0]]
+        context = "\n".join(relevant_chunks)
 
-        # Systémový prompt pro Gemini
+        # System prompt
         system_prompt = f"""
 Jsi osobní AI trenér běžeckého lyžování. Tvým klientem je mladý výkonnostní sportovec, který:
 - má 18 let a je v první sezóně v juniorské kategorii
@@ -127,8 +119,6 @@ Dodej lehké vysvětlení
 Kontext tréninků:
 {context}
 """
-
-        # Generování doporučení
         recommendation = generate_from_gemini(system_prompt)
         return jsonify({"recommendation": recommendation})
 
@@ -136,6 +126,7 @@ Kontext tréninků:
         app.logger.error("Endpoint /ask error:\n" + traceback.format_exc())
         return jsonify({"error": "Vnitřní chyba serveru, mrkni do logů."}), 500
 
+# ──────────────── RUN FOR RENDER ────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
