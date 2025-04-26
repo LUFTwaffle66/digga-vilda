@@ -2,19 +2,20 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import json
+import traceback
 import numpy as np
 import faiss
 import torch
 from transformers import AutoTokenizer, AutoModel
 import google.generativeai as genai
 
-# FLASK SETUP
+# ──────────────── FLASK SETUP ────────────────
 app = Flask(__name__)
 
-# Povolit CORS
+# Povolit CORS jen z Netlify frontendu
 CORS(
     app,
-    resources={r"/*": {"origins": ["https://cosmic-crostata-1c51df.netlify.app"]}},
+    resources={r"/ask": {"origins": ["https://cosmic-crostata-1c51df.netlify.app"]}},
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"]
 )
@@ -26,58 +27,74 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
-@app.route("/", methods=["GET", "OPTIONS"])
-def home():
-    return "OK", 200
+# ──────────────── API KEY & SDK SETUP ────────────────
+API_KEY = os.getenv("GOOGLE_API_KEY")
+if not API_KEY:
+    raise RuntimeError("GOOGLE_API_KEY environment variable is not set")
 
-# PROMĚNNÉ
-index = None
-chunks = None
+genai.configure(api_key=API_KEY)
 
-# Načtení modelu Seznam/retromae-small-cs pro embedding
+def generate_from_gemini(prompt: str) -> str:
+    try:
+        resp = genai.generate_text(
+            model="gemini-1.5-flash",
+            prompt=prompt
+        )
+        return resp.text
+    except Exception:
+        app.logger.error("Gemini error:\n" + traceback.format_exc())
+        raise
+
+# ──────────────── EMBEDDING MODEL SETUP ────────────────
 embedding_tokenizer = AutoTokenizer.from_pretrained("Seznam/retromae-small-cs")
-embedding_model = AutoModel.from_pretrained("Seznam/retromae-small-cs")
+embedding_model     = AutoModel.from_pretrained("Seznam/retromae-small-cs")
 
-# Načtení Gemini API klíče
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-gemini_model = genai.GenerativeModel("gemini-1.5-flash-latest")
-
-# Funkce pro embedding dotazu
-def get_embedding(text):
+def get_embedding(text: str) -> np.ndarray:
     with torch.no_grad():
         inputs = embedding_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         outputs = embedding_model(**inputs)
-        embeddings = outputs.last_hidden_state[:, 0, :]  # CLS token
-        embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-    return embeddings.numpy()
+        cls_emb = outputs.last_hidden_state[:, 0, :]
+        normed  = torch.nn.functional.normalize(cls_emb, p=2, dim=1)
+    return normed.cpu().numpy().astype("float32")
 
-# API ENDPOINT
+# ──────────────── GLOBALS FOR FAISS ────────────────
+index = None
+chunks = None
+
+# ──────────────── ENDPOINT FOR TRAINING RECOMMENDATION ────────────────
 @app.route("/ask", methods=["POST"])
 def ask():
     global index, chunks
+    try:
+        data = request.get_json(force=True)
+        logs = data.get("logs", [])
+        if not logs:
+            return jsonify({"error": "Chyba: žádné logy nepřišly."}), 400
 
-    data = request.get_json()
-    logs = data.get("logs", [])
+        # Sestavení dotazu z posledních 5 dní
+        query = ""
+        for log in logs:
+            query += (
+                f"{log['date']}: {log['activity']} {log['duration']}min "
+                f"{log['distance_km']}km i1:{log['i1']} i2:{log['i2']} "
+                f"i3:{log['i3']} i4:{log['i4']} i5:{log['i5']} "
+                f"poznámka: {log['note']}\n"
+            )
 
-    if not logs:
-        return jsonify({"recommendation": "Chyba: žádné logy nepřišly."}), 400
+        # Načtení FAISS indexu a chunků
+        if index is None:
+            faiss_path = os.path.join(os.path.dirname(__file__), "faiss.index")
+            index = faiss.read_index(faiss_path)
+            with open(os.path.join(os.path.dirname(__file__), "chunks.json"), "r") as f:
+                chunks = json.load(f)
 
-    query = ""
-    for log in logs:
-        query += f"{log['date']}: {log['activity']} {log['duration']}min {log['distance_km']}km i1:{log['i1']} i2:{log['i2']} i3:{log['i3']} i4:{log['i4']} i5:{log['i5']} poznámka: {log['note']}\n"
+        # Retrieval relevantních vzorů
+        emb = get_embedding(query)
+        D, I = index.search(emb, k=5)
+        context = "\n".join(chunks[i] for i in I[0])
 
-    if index is None:
-        faiss_path = os.path.join(os.path.dirname(__file__), "faiss.index")
-        index = faiss.read_index(faiss_path)
-        with open("chunks.json", "r") as f:
-            chunks = json.load(f)
-
-    query_embedding = get_embedding(query)
-    D, I = index.search(query_embedding, k=5)
-    relevant_chunks = [chunks[i] for i in I[0]]
-    context = "\n".join(relevant_chunks)
-
-    system_prompt = f"""
+        # Systémový prompt pro Gemini
+        system_prompt = f"""
 Jsi osobní AI trenér běžeckého lyžování. Tvým klientem je mladý výkonnostní sportovec, který:
 - má 18 let a je v první sezóně v juniorské kategorii
 - věnuje se běžeckému lyžování, orientačnímu běhu a ski orienťáku
@@ -108,13 +125,14 @@ Kontext tréninků:
 {context}
 """
 
-    try:
-        response = gemini_model.generate_content(system_prompt)
-        return jsonify({"recommendation": response.text})
-    except Exception as e:
-        return jsonify({"recommendation": f"Chyba: {e}"})
+        # Generování doporučení
+        recommendation = generate_from_gemini(system_prompt)
+        return jsonify({"recommendation": recommendation})
 
-# RUN PRO RENDER
+    except Exception:
+        app.logger.error("Endpoint /ask error:\n" + traceback.format_exc())
+        return jsonify({"error": "Vnitřní chyba serveru, mrkni do logů."}), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
