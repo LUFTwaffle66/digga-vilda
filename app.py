@@ -55,11 +55,13 @@ def ask():
     data = request.get_json()
     question = data.get("question", "")
 
-    # 🧠 Načíst index a texty, pokud ještě nejsou načtené
-    if index is None:
-        index = faiss.read_index("faiss.index")
-        with open("chunks.json", "r") as f:
-            chunks = json.load(f)
+   # 🧠 Načíst index a texty, pokud ještě nejsou načtené
+if index is None:
+    import os
+    faiss_path = os.path.join(os.path.dirname(__file__), "faiss.index")
+    index = faiss.read_index(faiss_path)
+    with open("chunks.json", "r") as f:
+        chunks = json.load(f)
 
     # 🔍 Vyhledat relevantní části
     query_embedding = get_embedding(question)
