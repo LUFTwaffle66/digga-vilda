@@ -1,114 +1,56 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import os
-import json
-import numpy as np
-import faiss
-import google.generativeai as genai
-
-# ──────────────── FLASK SETUP ────────────────
-app = Flask(__name__)
-
-# ✅ Povolit volání jen z tvé Netlify stránky
-CORS(
-    app,
-    resources={r"/*": {"origins": ["https://cosmic-crostata-1c51df.netlify.app"]}},
-    methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"]
-)
-
-# (Nepovinná záloha CORS hlaviček)
-@app.after_request
-def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "https://cosmic-crostata-1c51df.netlify.app"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    return response
-
-# ✅ Obsluha root URL pro preflight requesty
-@app.route("/", methods=["GET", "OPTIONS"])
-def home():
-    return "OK", 200
-
-# ──────────────── PROMĚNNÉ ────────────────
-index = None
-chunks = None
-
-# 🔐 Gemini API klíč
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-gemini_model = genai.GenerativeModel("gemini-1.5-flash-latest")
-
-# 🔎 Funkce pro embedding dotazu přes Gemini
-def get_embedding(text):
-    response = genai.embed_content(
-        model="models/embedding-001",
-        content=text,
-        task_type="retrieval_query"
-    )
-    return np.array([response["embedding"]], dtype="float32")
-
-# ──────────────── API ENDPOINT ────────────────
 @app.route("/ask", methods=["POST"])
 def ask():
     global index, chunks
 
     data = request.get_json()
-    question = data.get("question", "")
+    logs = data.get("logs", [])
 
-   # 🧠 Načíst index a texty, pokud ještě nejsou načtené
-if index is None:
-    import os
-    faiss_path = os.path.join(os.path.dirname(__file__), "faiss.index")
-    index = faiss.read_index(faiss_path)
-    with open("chunks.json", "r") as f:
-        chunks = json.load(f)
+    if not logs:
+        return jsonify({"recommendation": "Chyba: žádné logy nepřišly."}), 400
 
-    # 🔍 Vyhledat relevantní části
-    query_embedding = get_embedding(question)
+    query = ""
+    for log in logs:
+        query += f"{log['date']}: {log['activity']} {log['duration']}min {log['distance_km']}km i1:{log['i1']} i2:{log['i2']} i3:{log['i3']} i4:{log['i4']} i5:{log['i5']} poznámka: {log['note']}\n"
+
+    if index is None:
+        faiss_path = os.path.join(os.path.dirname(__file__), "faiss.index")
+        index = faiss.read_index(faiss_path)
+        with open("chunks.json", "r") as f:
+            chunks = json.load(f)
+
+    query_embedding = get_embedding(query)
     D, I = index.search(query_embedding, k=5)
     relevant_chunks = [chunks[i] for i in I[0]]
     context = "\n".join(relevant_chunks)
 
-    # 🧠 Vytvoření proměnné pro celý prompt
     system_prompt = f"""
-Jsi osobní AI trenér bežeckého lyžování. Tví klienti jsou mladí výkonnostní sportovci a právě pracuješ s atletem, který:
+Jsi osobní AI trenér běžeckého lyžování. Tvým klientem je mladý výkonnostní sportovec, který:
+- má 18 let a je v první sezóně v juniorské kategorii
+- věnuje se běžeckému lyžování, orientačnímu běhu a ski orienťáku
+- aktuálně rozvíjí VO2max, rychlost a sprintové schopnosti
+- technicky mu více sedí klasika než bruslení
+- klidový tep sleduje jako indikátor regenerace, běžně se pohybuju 45 až 50, 55 a víc už není dobré
+- školní dny ho vyčerpávají více než trénink
+- nejlepší výkony podává po vyšším objemu tréninku
 
-má 18 let a je v první sezóně v juniorsé kategorii  
-věnuje se hlavně běžeckému lyžování, dále ski orienťáku a přes léto orientačnímu běhu  
-přes zimu absolvoval velký objem tréninku, nyní přechází do jarní a letní přípravy  
-jeho cílem je zlepšit VO2max, rychlost a sprintové schopnosti, udržet vytrvalost a zlepšit se ve sprintových distancích  
-technicky mu více sedí klasika než bruslení  
-závody mu sedí nejlépe, když je lehce rozběhaný/rozježděný a má v nohách objem i za cenu mírné únavy  
-před závody se mu osvědčilo absolvovat soustředění nebo intenzivní blok a pak pár lehčích dní  
-klidový tep sleduje pečlivě: zvýšený HR během závodů nebo soustředění je normální, ale ve školním týdnu je to signál únavy  
-školní dny ho energeticky vyčerpávají více než trénink  
-preferuje dělat intervaly ráno  
-lehká aktivita před snídaní je v pohodě, ale ne tvrdý trénink  
-potřebuje stabilní objem, jinak závody nejdou dobře  
-moc závodů ho vyčerpává, ale občas se rozzávodit pomáhá, testovací závody však nemá rád, pokud není dlouhá pauza bez ostrého startu  
-bez dostatku regenerace a struktury ztrácí výkonnost  
-pravidelná síla je pro něj zásadní, když ji vynechá, rychle slábne  
-
-Tvé zadání:  
-Na základě záznamů o tréninku za posledních 5 dní a aktuálního klidového tepu navrhni, co má sportovec dělat **dnes**.
+Tvým úkolem je:
+Na základě záznamů o tréninku za posledních 5 dní a poznámek navrhnout, co má sportovec trénovat **dnes**.
 
 Zohledni:
-- rozdělení intenzit (I1 až I5)  
-- čas, vzdálenost, poznámky a únavu  
-- signály z poznámek nebo klidového tepu (únava, bolest, regenerace)  
-- tréninkový směr (VO2max, sprint, vytrvalost...)  
-- rozumné střídání těžkých a lehkých dní  
-- technické preference (např. klasika nebo skate)  
-- neboj se doporučit Rest
+- rozdělení intenzit (I1–I5)
+- čas, vzdálenost, poznámky a únavu
+- potřebu střídání těžkých a lehkých dnů
+- aktuální regeneraci podle poznámek a HR
+- VO2max, sprintové zaměření
+neboj se dát rest
 
-Na začátku každé zprávy napiš jedno písmeno „V -“  
-Napiš **pouze text** tréninku v jednoduchém formátu, např.:  
-V - klus I2 40' + 3×100
+Výstup:
+Napiš pouze jednoduchý plán, například:
+V - klus i2 45' + 3×100, na vyklepání nohou
 
-Bez vysvětlování, bez dalšího komentáře. Jen čistý návrh dnešního tréninku.
+Dodej lehké vysvětlení
 
-Zde je kontext pro inspiraci:
-
+Kontext tréninků:
 {context}
 """
 
@@ -117,8 +59,3 @@ Zde je kontext pro inspiraci:
         return jsonify({"recommendation": response.text})
     except Exception as e:
         return jsonify({"recommendation": f"Chyba: {e}"})
-
-# ──────────────── RUN PRO RENDER ────────────────
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
