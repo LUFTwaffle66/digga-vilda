@@ -144,6 +144,7 @@ first real competition is in december, so until then its just training - no need
 pay attetion to the time of the year and adjust the sports based on it
 if skiing is not possible due to the time of year recommend roller skiing
 don't be afraid of hard trainings
+endurance trainings should be 100 minutes or more, less is basic activity
 
 Output format:
 - First, write a simple training plan in one line.
