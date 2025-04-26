@@ -143,6 +143,7 @@ if there is long time without any hard session, you can add one, unless the athl
 first real competition is in december, so until then its just training - no need for tapering
 pay attetion to the time of the year and adjust the sports based on it
 if skiing is not possible due to the time of year recommend roller skiing
+don't be afraid of hard trainings
 
 Output format:
 - First, write a simple training plan in one line.
