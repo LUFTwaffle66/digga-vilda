@@ -13,13 +13,25 @@ import google.generativeai as genai
 app = Flask(__name__)
 
 # Globální CORS pro všechna URL na tvé Netlify doméně
-app.config['CORS_HEADERS'] = 'Content-Type'
-CORS(
-    app,
-    resources={r"/*": {"origins": "https://cosmic-crostata-1c51df.netlify.app"}},
-    methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"]
-)
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+# ... ostatní importy
+
+app = Flask(__name__)
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        # získej defaultní OPTIONS odpověď
+        resp = app.make_default_options_response()
+        h = resp.headers
+        h["Access-Control-Allow-Origin"] = "https://cosmic-crostata-1c51df.netlify.app"
+        h["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        h["Access-Control-Allow-Headers"] = "Content-Type"
+        return resp
+
+# === ZDE PŘIDEJ TENHLE JEDNODUCHÝ BLOK ===
+# Globálně povol CORS jen pro tvou Netlify doménu
+CORS(app, origins=["https://cosmic-crostata-1c51df.netlify.app"])
 
 # ──────────────── API KEY & MODELS ────────────────
 API_KEY = os.getenv("GOOGLE_API_KEY")
