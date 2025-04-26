@@ -13,9 +13,12 @@ import google.generativeai as genai
 app = Flask(__name__)
 
 # Povolit CORS jen z Netlify frontendu
+from flask_cors import CORS
+
+# povol CORS pro všechna URL na tvém doméně
 CORS(
     app,
-    resources={r"/ask": {"origins": ["https://cosmic-crostata-1c51df.netlify.app"]}},
+    resources={r"/*": {"origins": ["https://cosmic-crostata-1c51df.netlify.app"]}},
     methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"]
 )
