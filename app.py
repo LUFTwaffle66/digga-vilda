@@ -143,6 +143,7 @@ Training rules:
 	•	Adjust volume based on HR trends:
 	•	If HR is low and stable, you can increase volume or intensity.
 	•	If HR is high or rising without explanation, reduce intensity or volume.
+ recommend mix of skiing (snow/roller), run, bike, strength training, gym, imitation and other activities
 
 Priorities:
 	•	Respect school fatigue: if heavy, favor easy endurance or Rest.
