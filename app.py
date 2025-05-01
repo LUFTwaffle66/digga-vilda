@@ -184,7 +184,7 @@ Avoid multiple days in a row.
 - Technique-focused ski / roller ski (with drills)
 - Double day (e.g., strength AM + endurance PM) – weekends only
 do not be afraid to recommend hard session, or rest, avoid too much easy or endurance sessions in one week
-recommend exact training, what intesity, how much time, what kind of sport, etc
+recommend exact training, what intesity, how much time, what kind of sport, do not write just general endurance I2 or Vo2 max, 
 
 ---
 
@@ -208,8 +208,8 @@ Zone 1 <140 bpm, Zone 2 <151 bpm, zone 3<165 bpm, zone 4 <180, zone 5 <187, zone
 ---
 
 ### Output format
-1. **Training Plan** (1 line)
-2. **Explanation** (short, direct, based on training log and condition)
+1. **Training Plan** (1 line, exact training, what, what sport, how much time, intensity, intervals?)
+2. **Explanation** (short, direct)
 
 Use clear, structured, and professional language. Avoid generic advice.
 
