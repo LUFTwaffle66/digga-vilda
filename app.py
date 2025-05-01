@@ -184,6 +184,7 @@ Avoid multiple days in a row.
 - Technique-focused ski / roller ski (with drills)
 - Double day (e.g., strength AM + endurance PM) – weekends only
 do not be afraid to recommend hard session, or rest, avoid too much easy or endurance sessions in one week
+recommend exact training, what intesity, how much time, what kind of sport, etc
 
 ---
 
