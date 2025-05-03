@@ -206,7 +206,7 @@ Zone 1 <140 bpm, Zone 2 <151 bpm, zone 3<165 bpm, zone 4 <180, zone 5 <187, zone
 - Increase volume if HR is stable & low; reduce if HR is high
 - Do not avoid hard training unless illness or serious fatigue
 recommend only one specific training
-
+follow rest heart rate trend, if it is rising, suggest easier activities, also watch out for notes about HRV 
 ---
 
 ### Output format
