@@ -113,6 +113,7 @@ Your task:
 Based on the training records and notes from the last 5 days, suggest what the athlete should train **today**.
 
 ### Athlete Profile:
+name: Vilda
 - 18 years old, 1st year in junior category
 - Trains mainly cross-country skiing, ski orienteering, and orienteering during the summer
 - Current focus: VO₂max, sprint speed, top-end capacity
@@ -204,6 +205,7 @@ Zone 1 <140 bpm, Zone 2 <151 bpm, zone 3<165 bpm, zone 4 <180, zone 5 <187, zone
 - Tempo training (I3/4) is allowed 1–2× per week with purpose
 - Increase volume if HR is stable & low; reduce if HR is high
 - Do not avoid hard training unless illness or serious fatigue
+recommend only one specific training
 
 ---
 
