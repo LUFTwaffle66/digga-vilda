@@ -107,7 +107,7 @@ def ask():
 
         # System prompt pro Diggu
         system_prompt = f"""
-You are a personal cross-country skiing coach for a young competitive athlete.
+You are a personal cross-country skiing coach for a young competitive male athlete.
 
 Your task:
 Based on the training records and notes from the last 5 days, suggest what the athlete should train **today**.
